@@ -136,7 +136,7 @@ class TestGenerator
      * @param string $runConfig
      * @param int $nodes
      * @param TestObject[] $testsToIgnore
-     * @return void
+     * @return BaseTestManifest
      * @throws TestReferenceException
      * @throws \Exception
      */
@@ -155,6 +155,8 @@ class TestGenerator
         foreach ($testPhpArray as $testPhpFile) {
             $this->createCestFile($testPhpFile[1], $testPhpFile[0]);
         }
+
+        return $testManifest;
     }
 
     /**
@@ -214,10 +216,14 @@ class TestGenerator
             $cestPhpArray[] = [$test->getCodeceptionName(), $php];
 
             //write to manifest here if config is not single run
-            $testManifest->addTest($test);
+            if ($testManifest != null) {
+                $testManifest->addTest($test);
+            }
         }
 
-        $testManifest->generate($nodes);
+        if ($testManifest != null) {
+            $testManifest->generate($testsToIgnore, intval($nodes));
+        }
 
         return $cestPhpArray;
     }

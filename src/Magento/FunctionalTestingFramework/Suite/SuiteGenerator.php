@@ -12,6 +12,8 @@ use Magento\FunctionalTestingFramework\Suite\Generators\GroupClassGenerator;
 use Magento\FunctionalTestingFramework\Suite\Handlers\SuiteObjectHandler;
 use Magento\FunctionalTestingFramework\Suite\Objects\SuiteObject;
 use Magento\FunctionalTestingFramework\Util\Filesystem\DirSetupUtil;
+use Magento\FunctionalTestingFramework\Util\Manifest\BaseTestManifest;
+use Magento\FunctionalTestingFramework\Util\Manifest\ParallelTestManifest;
 use Magento\FunctionalTestingFramework\Util\TestGenerator;
 use Symfony\Component\Yaml\Yaml;
 
@@ -72,17 +74,38 @@ class SuiteGenerator
      * Function which takes all suite configurations and generates to appropriate directory, updating yml configuration
      * as needed. Returns an array of all tests generated keyed by test name.
      *
-     * @param string $config
+     * @param BaseTestManifest $testManifest
+     * @return void
+     */
+    public function generateAllSuites($testManifest)
+    {
+        $suites = SuiteObjectHandler::getInstance()->getAllObjects();
+        if (get_class($testManifest) == ParallelTestManifest::class) {
+            /** @var  ParallelTestManifest $testManifest */
+            $suites = $testManifest->getSorter()->getResultingSuites();
+        }
+
+        foreach ($suites as $suite) {
+            // during a parallel config run we must generate only after we have data around how a suite will be split
+            $this->generateSuiteFromObject($suite);
+        }
+    }
+
+    /**
+     * Returns an array of tests contained within suites as keys pointed at the name of their corresponding suite.
+     *
      * @return array
      */
-    public function generateAllSuites($config)
+    public function getTestsReferencedInSuites()
     {
         $testsReferencedInSuites = [];
         $suites = SuiteObjectHandler::getInstance()->getAllObjects();
         foreach ($suites as $suite) {
             /** @var SuiteObject $suite */
-            $testsReferencedInSuites = array_merge($testsReferencedInSuites, $suite->getTests());
-            $this->generateSuite($suite->getName(), $config);
+            $test_keys = array_keys($suite->getTests());
+            $testToSuiteName = array_fill_keys($test_keys, [$suite->getName()]);
+
+            $testsReferencedInSuites = array_merge_recursive($testsReferencedInSuites, $testToSuiteName);
         }
 
         return $testsReferencedInSuites;
@@ -93,23 +116,35 @@ class SuiteGenerator
      * yml configuration for group run.
      *
      * @param string $suiteName
-     * @param string $config
      * @return void
      */
-    public function generateSuite($suiteName, $config = null)
+    public function generateSuite($suiteName)
     {
         /**@var SuiteObject $suite **/
         $suite = SuiteObjectHandler::getInstance()->getObject($suiteName);
+        $this->generateSuiteFromObject($suite);
+    }
+
+    /**
+     * Function which takes a suite object and generates all relevant supporting files and classes.
+     *
+     * @param SuiteObject $suiteObject
+     * @param string $config
+     * @return void
+     */
+    public function generateSuiteFromObject($suiteObject, $config = null)
+    {
+        $suiteName = $suiteObject->getName();
         $relativePath = TestGenerator::GENERATED_DIR . DIRECTORY_SEPARATOR . $suiteName;
         $fullPath = TESTS_MODULE_PATH . DIRECTORY_SEPARATOR . $relativePath;
         $groupNamespace = null;
 
         DirSetupUtil::createGroupDir($fullPath);
-        $this->generateRelevantGroupTests($suiteName, $suite->getTests(), $config);
+        $this->generateRelevantGroupTests($suiteName, $suiteObject->getTests(), $config);
 
-        if ($suite->requiresGroupFile()) {
+        if ($suiteObject->requiresGroupFile()) {
             // if the suite requires a group file, generate it and set the namespace
-            $groupNamespace = $this->groupClassGenerator->generateGroupClass($suite);
+            $groupNamespace = $this->groupClassGenerator->generateGroupClass($suiteObject);
         }
 
         $this->appendEntriesToConfig($suiteName, $fullPath, $groupNamespace);
@@ -202,12 +237,11 @@ class SuiteGenerator
      *
      * @param string $path
      * @param array $tests
-     * @param string $config
      * @return void
      */
-    private function generateRelevantGroupTests($path, $tests, $config)
+    private function generateRelevantGroupTests($path, $tests)
     {
         $testGenerator = TestGenerator::getInstance($path, $tests);
-        $testGenerator->createAllTestFiles($config);
+        $testGenerator->createAllTestFiles('suite');
     }
 }
